@@ -69,6 +69,43 @@ body {
 /* page curl overlay, drawn frame by frame while a page turns */
 .curl { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
 
+/* bookshelf */
+#shelf { position: absolute; inset: 0; z-index: 7; background: var(--stage); display: flex; flex-direction: column; }
+.shelf-head {
+  display: flex; align-items: center; gap: 10px; padding-block: 12px; border-bottom: 1px solid var(--line); background: var(--chrome);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.shelf-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.shelf-name { font-family: var(--font-display); font-size: 21px; letter-spacing: 0.02em; }
+.shelf-body {
+  flex: 1; overflow-y: auto; padding-block: 20px 32px; display: grid; gap: 20px; align-content: start;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.shelf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 22px 16px; }
+.book { position: relative; min-width: 0; }
+.book-open { all: unset; display: grid; gap: 6px; width: 100%; cursor: pointer; }
+.book-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
+.cover {
+  aspect-ratio: 3 / 4; max-width: 100%; border-radius: 3px 6px 6px 3px; overflow: hidden; background: var(--chrome);
+  box-shadow: 0 6px 18px var(--page-shadow), inset 3px 0 0 rgba(0,0,0,.08);
+}
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover.blank { display: grid; place-items: center; padding: 12px; text-align: center; font-family: var(--font-display); font-size: 18px; color: var(--muted); }
+.book.current .cover { outline: 3px solid var(--accent); outline-offset: 3px; }
+.progress { height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); }
+.book-title { font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.book-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.book-del {
+  position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: var(--chrome); color: var(--fg); cursor: pointer; box-shadow: 0 1px 4px var(--page-shadow);
+}
+.book-del svg { width: 16px; height: 16px; }
+.book-ask {
+  position: absolute; inset: 0 0 auto 0; aspect-ratio: 3 / 4; max-width: 100%; display: grid; place-content: center; gap: 8px; padding: 10px;
+  background: var(--chrome); border-radius: 6px; text-align: center; font-weight: 600;
+}
+
 /* bars */
 .bar {
   position: absolute; left: 0; right: 0; z-index: 5; background: var(--chrome);
@@ -157,6 +194,10 @@ button { font: inherit; color: inherit; }
 
   <header id="topbar" class="bar">
     <div class="brand">펼침<b>뷰어</b></div>
+    <button class="btn textual" id="shelfBtn" type="button" aria-label="책장">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h3v16H4zM9 4h3v16H9z"/><path d="M14.5 5.2l2.9-.8 3.9 14.7-2.9.8z"/></svg>
+      <span>책장</span>
+    </button>
     <button class="btn primary textual" id="openBtn" type="button" aria-label="파일 열기">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v2"/><path d="M3 19l3-8h15l-3 8z"/></svg>
       <span>열기</span>
@@ -232,6 +273,23 @@ button { font: inherit; color: inherit; }
     </button>
   </footer>
 
+  <section id="shelf" hidden aria-label="책장">
+    <header class="shelf-head">
+      <div class="shelf-title"><span class="shelf-name">책장</span><span id="shelfCount" class="book-meta"></span></div>
+      <button class="btn primary" id="shelfAdd" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span>책 꽂기</span>
+      </button>
+      <button class="btn icon" id="shelfClose" type="button" aria-label="책장 닫기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="shelf-body">
+      <div id="shelfGrid" class="shelf-grid"></div>
+      <p class="tips">PDF와 ZIP은 한 파일이 한 권이 되고, 사진은 함께 고른 것끼리 한 권으로 묶여요. 책과 읽던 쪽은 이 기기에만 저장돼요.</p>
+    </div>
+  </section>
+
   <div id="drop" hidden>여기에 놓으면 열려요</div>
   <div id="loading" hidden>불러오는 중…</div>
   <div id="toast" hidden></div>
@@ -258,7 +316,7 @@ button { font: inherit; color: inherit; }
   );
 
   // pages: { kind: "img", src, w, h } | { kind: "pdf", doc, n, w, h }
-  let book = { key: "sample", name: "예시 만화", pages: [], urls: [], docs: [] };
+  let book = { key: "sample", name: "예시 만화", pages: [], urls: [], docs: [], rec: null };
   let pos = 0;           // index of the first page on screen
   let spreads = [];
   let two = false;
@@ -384,6 +442,7 @@ button { font: inherit; color: inherit; }
     $("pageLabel").textContent = (first === last ? `${first}` : `${first}-${last}`) + ` / ${n}`;
     slider.value = si;
     store.set("fv.pos." + book.key, pos);
+    saveProgress();
     prefetch(si, boxW, boxH);
   }
   function prefetch(si, boxW, boxH) {
@@ -398,8 +457,8 @@ button { font: inherit; color: inherit; }
   }
 
   /* ---------- page curl ----------
-     The paper folds along the line halfway between the spot you grabbed (O) and your finger (F),
-     so the exact point you touched stays under your finger. The page stays bound at the spine. */
+     The page edge is held at your finger's height (O) and pulled along with it (F); the paper folds
+     along the line halfway between the two. The page stays bound at the spine. */
   const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   let flip = null; // the turn in progress
   const PAPER_BACK = "#f2f1ec";
@@ -461,15 +520,8 @@ button { font: inherit; color: inherit; }
     const R = leaf.rect;
     const spineX = side === "right" ? R.x : R.x + R.w;
     const outerX = side === "right" ? R.x + R.w : R.x;
-    let O;
-    if (touch) {
-      // grabbing right at the spine gives no leverage, so keep the hold at least a quarter page out
-      const minOut = R.w * 0.25;
-      const x = side === "right" ? clamp(touch.x, spineX + minOut, outerX - 1) : clamp(touch.x, outerX + 1, spineX - minOut);
-      O = { x, y: clamp(touch.y, R.y + 1, R.y + R.h - 1) };
-    } else {
-      O = { x: outerX, y: R.y + R.h * 0.86 }; // a thumb at the lower corner
-    }
+    // the paper is held at its outer edge, at the height of your finger (or a thumb at the lower corner for a tap)
+    const O = { x: outerX, y: touch ? clamp(touch.y, R.y + 1, R.y + R.h - 1) : R.y + R.h * 0.86 };
     const ST = { x: spineX, y: R.y }, SB = { x: spineX, y: R.y + R.h };
     const cv = document.createElement("canvas");
     cv.className = "curl";
@@ -482,7 +534,9 @@ button { font: inherit; color: inherit; }
     flip = {
       cv, ctx, dpr, W: base.width, H: base.height, side, leaf, still, R, spineX, O, F: { ...O },
       T: { x: 2 * spineX - O.x, y: O.y }, ST, SB, D1: Math.hypot(O.x - ST.x, O.y - ST.y), D2: Math.hypot(O.x - SB.x, O.y - SB.y),
-      prevPos, otherSide: side === "right" ? "left" : "right", twoUp: old.length === 2
+      prevPos, otherSide: side === "right" ? "left" : "right", twoUp: old.length === 2,
+      // match the page's own spine shading so nothing jumps when the overlay comes and goes
+      spine: old.length === 2 && settings.shade && !settings.gap ? getComputedStyle(document.documentElement).getPropertyValue("--spine").trim() : null
     };
     drawCurl(flip);
     return flip;
@@ -508,13 +562,27 @@ button { font: inherit; color: inherit; }
     return readyImg(img) ? img : null;
   }
 
+  // the soft shadow in the gutter, drawn on a page whose spine edge is at x = edge
+  function spineShade(ctx, f, r, edge) {
+    if (!f.spine) return;
+    const w = 28, dir = edge > r.x + r.w / 2 ? -1 : 1;
+    const g = ctx.createLinearGradient(edge, 0, edge + dir * w, 0);
+    g.addColorStop(0, f.spine); g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(dir > 0 ? edge : edge - w, r.y, w, r.h);
+  }
+
   function drawCurl(f) {
     const { ctx, R, O, F } = f;
     ctx.setTransform(f.dpr, 0, 0, f.dpr, 0, 0);
     ctx.clearRect(0, 0, f.W, f.H);
-    if (f.still) { const r = f.still.rect; ctx.drawImage(f.still.img, r.x, r.y, r.w, r.h); }
+    if (f.still) {
+      const r = f.still.rect;
+      ctx.drawImage(f.still.img, r.x, r.y, r.w, r.h);
+      spineShade(ctx, f, r, f.still.side === "left" ? r.x + r.w : r.x);
+    }
     const dx = F.x - O.x, dy = F.y - O.y, d = Math.hypot(dx, dy);
-    if (d < 0.5) { ctx.drawImage(f.leaf.img, R.x, R.y, R.w, R.h); return; }
+    if (d < 0.5) { ctx.drawImage(f.leaf.img, R.x, R.y, R.w, R.h); spineShade(ctx, f, R, f.spineX); return; }
     const nx = dx / d, ny = dy / d, mx = (O.x + F.x) / 2, my = (O.y + F.y) / 2;
     const s = (p) => (p[0] - mx) * nx + (p[1] - my) * ny; // < 0 on the lifted side
     const rect = [[R.x, R.y], [R.x + R.w, R.y], [R.x + R.w, R.y + R.h], [R.x, R.y + R.h]];
@@ -524,12 +592,14 @@ button { font: inherit; color: inherit; }
     const reflect = (p) => { const t = s(p) * 2; return [p[0] - t * nx, p[1] - t * ny]; };
     const flap = lifted.map(reflect);
     const prog = clamp(curlProgress(f), 0, 1);
-    const fade = 1 - Math.pow(prog, 3); // shadows soften as the page settles
+    // shadows grow in as the paper lifts and soften as it settles, so nothing pops
+    const fade = (1 - Math.pow(prog, 3)) * Math.min(1, d / 70);
 
     // 1. the part of the page still lying flat
     if (flat.length > 2) {
       ctx.save(); pathPoly(ctx, flat); ctx.clip();
       ctx.drawImage(f.leaf.img, R.x, R.y, R.w, R.h);
+      spineShade(ctx, f, R, f.spineX);
       // the lifted paper darkens the flat page right under the fold
       const w0 = clamp(d * 0.12, 6, 36);
       const g0 = ctx.createLinearGradient(mx, my, mx + nx * w0, my + ny * w0);
@@ -561,8 +631,11 @@ button { font: inherit; color: inherit; }
     ctx.transform(1 - 2 * nx * nx, -2 * nx * ny, -2 * nx * ny, 1 - 2 * ny * ny, k * nx, k * ny);
     const back = backImage(f);
     if (back) {
+      ctx.save();
       ctx.translate(R.x + R.w, R.y); ctx.scale(-1, 1);
       ctx.drawImage(back, 0, 0, R.w, R.h);
+      ctx.restore();
+      spineShade(ctx, f, R, f.spineX); // lands in the other page's gutter once mirrored
     } else {
       ctx.fillStyle = PAPER_BACK; ctx.fillRect(R.x, R.y, R.w, R.h);
       ctx.globalAlpha = 0.09; ctx.drawImage(f.leaf.img, R.x, R.y, R.w, R.h); // ink showing through
@@ -602,7 +675,11 @@ button { font: inherit; color: inherit; }
   function finishCurl(commit) {
     const f = flip; if (!f) return;
     flip = null;
-    if (commit) { f.cv.remove(); return; }
+    if (commit) {
+      f.cv.style.transition = "opacity .14s linear"; f.cv.style.opacity = "0";
+      setTimeout(() => f.cv.remove(), 160);
+      return;
+    }
     pos = f.prevPos; render();
     setTimeout(() => f.cv.remove(), 120); // let the old pages paint before the overlay goes
   }
@@ -731,7 +808,7 @@ button { font: inherit; color: inherit; }
 
   /* ---------- opening files ---------- */
   $("openBtn").onclick = () => $("fileInput").click();
-  $("fileInput").onchange = (e) => { if (e.target.files.length) openFiles([...e.target.files]); e.target.value = ""; };
+  $("fileInput").onchange = (e) => { if (e.target.files.length) addFiles([...e.target.files]); e.target.value = ""; };
 
   let dragDepth = 0;
   app.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; $("drop").hidden = false; });
@@ -739,7 +816,7 @@ button { font: inherit; color: inherit; }
   app.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
   app.addEventListener("drop", (e) => {
     e.preventDefault(); dragDepth = 0; $("drop").hidden = true;
-    if (e.dataTransfer.files.length) openFiles([...e.dataTransfer.files]);
+    if (e.dataTransfer.files.length) addFiles([...e.dataTransfer.files]);
   });
 
   async function readPdf(file) {
@@ -759,50 +836,204 @@ button { font: inherit; color: inherit; }
     return urls;
   }
 
-  async function openFiles(files) {
-    files.sort((a, b) => natural(a.name, b.name));
+  /* ---------- bookshelf: books and reading spots are kept on this device ---------- */
+  const db = (() => {
+    let opening;
+    const open = () => opening || (opening = new Promise((res, rej) => {
+      const r = indexedDB.open("fold-viewer", 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore("books", { keyPath: "id" }); r.result.createObjectStore("progress", { keyPath: "id" }); };
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }));
+    const tx = async (name, mode, fn) => {
+      const d = await open();
+      return new Promise((res, rej) => {
+        const t = d.transaction(name, mode), req = fn(t.objectStore(name));
+        t.oncomplete = () => res(req && req.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+      });
+    };
+    return {
+      get: (name, id) => tx(name, "readonly", (s) => s.get(id)).catch(() => null),
+      all: (name) => tx(name, "readonly", (s) => s.getAll()).catch(() => []),
+      put: (name, v) => tx(name, "readwrite", (s) => s.put(v)),
+      del: (name, id) => tx(name, "readwrite", (s) => s.delete(id)).catch(() => null)
+    };
+  })();
+
+  const isPdf = (f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+  const isZip = (f) => /\.(zip|cbz)$/i.test(f.name);
+  const isImg = (f) => f.type.startsWith("image/") || IMG_RE.test(f.name);
+  const bare = (n) => n.replace(/\.[^.]+$/, "");
+  function bookId(files) {
+    let h = 2166136261; // FNV-1a over names, sizes and dates: same files, same book
+    for (const ch of files.map((f) => `${f.name}:${f.size}:${f.lastModified}`).join("|")) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+    return "b" + (h >>> 0).toString(36) + files.length;
+  }
+
+  let progressTimer;
+  function saveProgress() {
+    if (!book.rec) return;
+    store.set("fv.last", book.rec.id);
+    clearTimeout(progressTimer);
+    const rec = { id: book.rec.id, pos, pages: book.pages.length, opened: Date.now() };
+    progressTimer = setTimeout(() => db.put("progress", rec).catch(() => {}), 300);
+  }
+
+  // each PDF or ZIP becomes its own book; loose photos picked together become one book
+  async function addFiles(files) {
+    files = files.filter((f) => isPdf(f) || isZip(f) || isImg(f)).sort((a, b) => natural(a.name, b.name));
+    if (!files.length) return toast("열 수 있는 PDF, 사진, ZIP(CBZ) 파일이 없어요", 3600);
+    const groups = files.filter((f) => !isImg(f)).map((f) => [f]);
+    const photos = files.filter(isImg);
+    if (photos.length) groups.push(photos);
+    const recs = [];
+    for (const g of groups) {
+      const title = g.length === 1 ? bare(g[0].name) : `${bare(g[0].name)} 외 ${g.length - 1}장`;
+      const rec = { id: bookId(g), title, files: g, added: Date.now() };
+      const had = await db.get("books", rec.id);
+      if (had) { rec.added = had.added; rec.cover = had.cover; }
+      try { await db.put("books", rec); rec.saved = true; } catch (e) { console.warn(e); }
+      recs.push(rec);
+    }
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+    if (recs.some((r) => !r.saved)) toast("저장 공간이 모자라서 책장에 못 꽂은 책이 있어요. 이번에만 열어 둘게요", 4200);
+    else if (recs.length > 1) toast(`책장에 ${recs.length}권을 꽂았어요`);
+    showShelf(false);
+    await openBook(recs[0]);
+  }
+
+  async function openBook(rec) {
+    if (!rec) return;
     $("loading").hidden = false; $("loading").textContent = "불러오는 중…";
-    const next = { key: "", name: "", pages: [], urls: [], docs: [] };
+    const next = { key: rec.id, name: rec.title, pages: [], urls: [], docs: [], rec };
     try {
-      for (const f of files) {
-        const name = f.name.toLowerCase();
-        if (f.type === "application/pdf" || name.endsWith(".pdf")) {
+      for (const f of rec.files) {
+        if (isPdf(f)) {
           $("loading").textContent = `${f.name} 여는 중…`;
           const { doc, pages } = await readPdf(f);
           next.docs.push(doc); next.pages.push(...pages);
-        } else if (/\.(zip|cbz)$/.test(name)) {
+        } else if (isZip(f)) {
           $("loading").textContent = `${f.name} 푸는 중…`;
           const urls = await readZip(f);
           next.urls.push(...urls); next.pages.push(...urls.map((src) => ({ kind: "img", src, w: 0, h: 0 })));
-        } else if (f.type.startsWith("image/") || IMG_RE.test(name)) {
+        } else {
           const src = URL.createObjectURL(f);
           next.urls.push(src); next.pages.push({ kind: "img", src, w: 0, h: 0 });
         }
       }
     } catch (e) {
       $("loading").hidden = true;
+      next.urls.forEach((u) => URL.revokeObjectURL(u));
       toast(e.message && e.message.includes("라이브러리") ? e.message : "파일을 열지 못했어요. 암호가 걸렸거나 손상된 파일인지 확인해 주세요.", 4200);
       console.error(e); return;
     }
     $("loading").hidden = true;
-    if (!next.pages.length) return toast("열 수 있는 PDF, 사진, ZIP(CBZ) 파일이 없어요", 3600);
+    if (!next.pages.length) return toast("이 책에는 열 수 있는 쪽이 없어요", 3600);
 
-    // swap books
+    finishCurl(true);
     book.urls.forEach((u) => URL.revokeObjectURL(u));
     book.docs.forEach((d) => d.destroy && d.destroy());
     cache.forEach((u) => URL.revokeObjectURL(u)); cache.clear();
-
-    const title = files.length === 1 ? files[0].name.replace(/\.[^.]+$/, "") : `${files[0].name.replace(/\.[^.]+$/, "")} 외 ${files.length - 1}개`;
-    next.name = title;
-    next.key = title + "|" + next.pages.length;
     book = next;
-    $("docName").textContent = title;
+    $("docName").textContent = rec.title;
     $("docMeta").textContent = `${book.pages.length}쪽`;
-    pos = Math.min(store.get("fv.pos." + book.key, 0), book.pages.length - 1);
+    const prog = await db.get("progress", rec.id);
+    pos = Math.max(0, Math.min(prog ? prog.pos : store.get("fv.pos." + rec.id, 0), book.pages.length - 1));
     relayout();
-    if (pos > 0) toast(`읽던 ${pos + 1}쪽부터 이어서 열었어요`);
+    if (pos > 0) toast(`지난번 ${pos + 1}쪽부터 이어서 읽어요`);
     keepAwake();
     measurePages(book);
+    if (!rec.cover && rec.saved !== false) makeCover(book);
+  }
+
+  async function makeCover(b) {
+    try {
+      const src = await pageSrc(0, 240, 340);
+      const im = new Image(); im.src = src; await im.decode();
+      const w = 240, h = Math.round((w * im.naturalHeight) / im.naturalWidth);
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(im, 0, 0, w, h);
+      b.rec.cover = c.toDataURL("image/jpeg", 0.8);
+      const stored = await db.get("books", b.rec.id);
+      if (stored) { stored.cover = b.rec.cover; await db.put("books", stored); }
+    } catch (e) { console.warn(e); }
+  }
+
+  function openSample() {
+    finishCurl(true);
+    book.urls.forEach((u) => URL.revokeObjectURL(u));
+    book.docs.forEach((d) => d.destroy && d.destroy());
+    book = { key: "sample", name: "예시 만화", pages: makeSample(), urls: [], docs: [], rec: null };
+    $("docName").textContent = "예시 만화";
+    $("docMeta").textContent = "내 PDF·사진·ZIP을 열어 보세요";
+    pos = 0; relayout(); measurePages(book);
+  }
+
+  function showShelf(open) {
+    $("shelf").hidden = !open;
+    if (open) { toggleSheet(false); renderShelf(); }
+  }
+  $("shelfBtn").onclick = () => showShelf(true);
+  $("shelfClose").onclick = () => showShelf(false);
+  $("shelfAdd").onclick = () => $("fileInput").click();
+
+  const ago = (t) => {
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return "방금"; if (m < 60) return `${m}분 전`;
+    const h = Math.round(m / 60); if (h < 24) return `${h}시간 전`;
+    const d = Math.round(h / 24); return d < 30 ? `${d}일 전` : new Date(t).toLocaleDateString("ko-KR");
+  };
+
+  async function renderShelf() {
+    const [books, progress] = await Promise.all([db.all("books"), db.all("progress")]);
+    const pmap = new Map(progress.map((p) => [p.id, p]));
+    books.sort((a, b) => ((pmap.get(b.id) || {}).opened || b.added) - ((pmap.get(a.id) || {}).opened || a.added));
+    const grid = $("shelfGrid");
+    grid.replaceChildren();
+    $("shelfCount").textContent = books.length ? `${books.length}권` : "아직 꽂힌 책이 없어요";
+    const card = (title, coverSrc, meta, pct, onOpen, onDelete, current) => {
+      const el = document.createElement("article");
+      el.className = "book" + (current ? " current" : "");
+      const open = document.createElement("button");
+      open.type = "button"; open.className = "book-open"; open.setAttribute("aria-label", `${title} 열기`);
+      const cov = document.createElement("div"); cov.className = "cover";
+      if (coverSrc) { const im = new Image(); im.src = coverSrc; im.alt = ""; cov.appendChild(im); }
+      else { cov.textContent = title.slice(0, 12); cov.classList.add("blank"); }
+      const bar = document.createElement("div"); bar.className = "progress";
+      bar.innerHTML = `<i style="width:${Math.round(pct * 100)}%"></i>`;
+      const t = document.createElement("div"); t.className = "book-title"; t.textContent = title;
+      const m = document.createElement("div"); m.className = "book-meta"; m.textContent = meta;
+      open.append(cov, bar, t, m);
+      open.onclick = onOpen;
+      el.appendChild(open);
+      if (onDelete) {
+        const del = document.createElement("button");
+        del.type = "button"; del.className = "book-del"; del.setAttribute("aria-label", `${title} 책장에서 빼기`);
+        del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+        del.onclick = () => {
+          const ask = document.createElement("div"); ask.className = "book-ask";
+          ask.innerHTML = '<span>책장에서 뺄까요?</span>';
+          const yes = document.createElement("button"); yes.type = "button"; yes.className = "btn primary"; yes.textContent = "빼기";
+          const no = document.createElement("button"); no.type = "button"; no.className = "btn"; no.textContent = "두기";
+          yes.onclick = onDelete; no.onclick = () => ask.remove();
+          ask.append(yes, no); el.appendChild(ask);
+        };
+        el.appendChild(del);
+      }
+      grid.appendChild(el);
+    };
+    books.forEach((b) => {
+      const p = pmap.get(b.id);
+      const pages = p ? p.pages : 0, at = p ? p.pos + 1 : 0;
+      const meta = pages ? `${at} / ${pages}쪽 · ${ago(p.opened)}` : "아직 안 읽음";
+      card(b.title, b.cover, meta, pages ? at / pages : 0, () => { showShelf(false); openBook(b); },
+        async () => {
+          await db.del("books", b.id); await db.del("progress", b.id);
+          if (book.rec && book.rec.id === b.id) book.rec = null;
+          if (store.get("fv.last", null) === b.id) store.set("fv.last", null);
+          renderShelf();
+        }, book.rec && book.rec.id === b.id);
+    });
+    card("예시 만화", null, "처음 써볼 때 보는 예시", 0, () => { showShelf(false); openSample(); }, null, book.key === "sample");
   }
 
   // learn each page's shape in the background so wide (double-page) scans can stand alone
@@ -882,11 +1113,11 @@ button { font: inherit; color: inherit; }
   /* ---------- boot ---------- */
   syncSettingsUI();
   window.addEventListener("resize", () => { finishCurl(true); clearTimeout(window.__rz); window.__rz = setTimeout(() => relayout(), 120); });
-  const boot = () => {
-    book.pages = makeSample();
-    pos = 0;
-    relayout();
-    measurePages(book);
+  const boot = async () => {
+    const lastId = store.get("fv.last", null);
+    const last = lastId && (await db.get("books", lastId));
+    if (last) await openBook(last);
+    if (!book.pages.length) openSample();
     if (!store.get("fv.seenHint", false)) { toast("양끝을 탭하거나 밀어서 넘겨 보세요", 3600); store.set("fv.seenHint", true); }
   };
   (document.fonts && document.fonts.ready ? Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1200))]) : Promise.resolve()).then(boot);

@@ -1,0 +1,798 @@
+<title>펼침 뷰어</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: full-bleed reading stage; floating top/bottom bars that hide on a center tap; settings as a sheet. */
+:root {
+  --stage: #dfe2e6;
+  --chrome: rgba(250, 251, 252, 0.94);
+  --fg: #1b1e22;
+  --muted: #5f6670;
+  --line: #c9ced5;
+  --accent: #1f7a6d;
+  --accent-fg: #ffffff;
+  --page-shadow: rgba(20, 24, 30, 0.22);
+  --spine: rgba(0, 0, 0, 0.16);
+  --font-display: "Black Han Sans", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --stage: #111316; --chrome: rgba(28, 31, 36, 0.94); --fg: #eceef1; --muted: #9aa2ad;
+    --line: #343a42; --accent: #3fb3a2; --accent-fg: #0b1a17; --page-shadow: rgba(0, 0, 0, 0.6);
+    --spine: rgba(0, 0, 0, 0.35); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --stage: #111316; --chrome: rgba(28, 31, 36, 0.94); --fg: #eceef1; --muted: #9aa2ad;
+  --line: #343a42; --accent: #3fb3a2; --accent-fg: #0b1a17; --page-shadow: rgba(0, 0, 0, 0.6);
+  --spine: rgba(0, 0, 0, 0.35); color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--stage); color: var(--fg); font-family: var(--font-body); font-size: 14px;
+  overflow: hidden; -webkit-tap-highlight-color: transparent; overscroll-behavior: none;
+}
+#app { position: relative; height: 100%; overflow: hidden; }
+
+/* stage */
+#stage {
+  position: absolute; inset: 0; touch-action: pinch-zoom; user-select: none; -webkit-user-select: none;
+  padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px);
+}
+#spread { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: stretch; }
+#spread.gap { gap: 10px; }
+.slot { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: center; }
+.slot.solo { flex-basis: 100%; justify-content: center; }
+.slot.left { justify-content: flex-end; }
+.slot.right { justify-content: flex-start; }
+.slot img {
+  display: block; width: 100%; height: 100%; object-fit: contain; max-width: 100%;
+  filter: drop-shadow(0 2px 10px var(--page-shadow));
+}
+.slot.left img { object-position: right center; }
+.slot.right img { object-position: left center; }
+.slot.solo img { object-position: center; }
+#spread.shade:not(.gap) .slot.left::after, #spread.shade:not(.gap) .slot.right::after {
+  content: ""; position: absolute; top: var(--inset, 0px); bottom: var(--inset, 0px); width: 28px; pointer-events: none;
+}
+#spread.shade:not(.gap) .slot.left::after { right: 0; background: linear-gradient(to left, var(--spine), transparent); }
+#spread.shade:not(.gap) .slot.right::after { left: 0; background: linear-gradient(to right, var(--spine), transparent); }
+.slot .wait {
+  position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted);
+  font-family: var(--font-mono); font-size: 13px;
+}
+
+/* page turn */
+.flip-layer { position: absolute; inset: 0; perspective: 2400px; pointer-events: none; z-index: 2; }
+.flip-layer .half { position: absolute; top: 0; bottom: 0; width: 50%; display: flex; }
+.flip-layer .half.left { left: 0; }
+.flip-layer .half.right { right: 0; }
+.flip-layer .half.gapped { width: calc(50% - 5px); }
+.flip-layer .half > .slot { flex: 1 1 auto; }
+.leaf { position: absolute; top: 0; bottom: 0; width: 50%; transform-style: preserve-3d; will-change: transform; }
+.leaf.right { right: 0; }
+.leaf.left { left: 0; }
+.leaf.full { inset: 0; width: auto; }
+.leaf .face { position: absolute; inset: 0; width: auto; display: flex; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.leaf .face.back { transform: rotateY(180deg); }
+.leaf .face > .slot { flex: 1 1 auto; }
+.flip-layer .cast { position: absolute; top: 0; bottom: 0; width: 50%; opacity: 0; }
+.flip-layer .cast.left { left: 0; background: linear-gradient(to left, var(--spine), transparent 70%); }
+.flip-layer .cast.right { right: 0; background: linear-gradient(to right, var(--spine), transparent 70%); }
+
+/* bars */
+.bar {
+  position: absolute; left: 0; right: 0; z-index: 5; background: var(--chrome);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; align-items: center; gap: 10px; transition: transform .22s ease, opacity .22s ease;
+}
+#topbar { top: 0; padding-block: 10px; border-bottom: 1px solid var(--line); }
+#bottombar { bottom: 0; padding-block: 10px; border-top: 1px solid var(--line); }
+#app.immersive #topbar { transform: translateY(-110%); opacity: 0; pointer-events: none; }
+#app.immersive #bottombar { transform: translateY(110%); opacity: 0; pointer-events: none; }
+.brand { font-family: var(--font-display); font-size: 19px; letter-spacing: 0.02em; white-space: nowrap; }
+.brand b { color: var(--accent); font-weight: 400; }
+.doc { min-width: 0; flex: 1; display: flex; flex-direction: column; line-height: 1.25; }
+.doc .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc .meta { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button { font: inherit; color: inherit; }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: transparent; cursor: pointer; white-space: nowrap;
+}
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+.btn.icon { width: 38px; padding: 0; justify-content: center; }
+.btn:focus-visible, .seg button:focus-visible, .switch input:focus-visible + span, input[type=range]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.btn svg { width: 18px; height: 18px; flex: none; }
+.chip {
+  font-family: var(--font-mono); font-size: 12px; padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+}
+#pageLabel { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; min-width: 92px; text-align: center; }
+#slider { flex: 1; min-width: 0; accent-color: var(--accent); height: 28px; }
+
+/* settings sheet */
+#sheet {
+  position: absolute; z-index: 8; top: 66px; right: max(16px, env(safe-area-inset-right, 0px));
+  width: min(360px, calc(100% - 32px)); background: var(--chrome); border: 1px solid var(--line);
+  border-radius: 14px; padding: 16px; display: grid; gap: 16px; box-shadow: 0 12px 40px var(--page-shadow);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); max-height: calc(100% - 140px); overflow-y: auto;
+}
+.field { display: grid; gap: 8px; }
+.field > .label { font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 9px 6px; cursor: pointer; line-height: 1.25; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.seg small { display: block; font-size: 11px; opacity: .8; }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.switch .txt { display: grid; gap: 2px; }
+.switch .txt small { color: var(--muted); font-size: 12px; }
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
+.switch span.track { flex: none; width: 42px; height: 24px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s; }
+.switch span.track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--chrome); transition: transform .15s; }
+.switch input:checked + span.track { background: var(--accent); }
+.switch input:checked + span.track::after { transform: translateX(18px); background: var(--accent-fg); }
+.tips { font-size: 12px; color: var(--muted); line-height: 1.6; border-top: 1px solid var(--line); padding-top: 12px; }
+
+/* overlays */
+#drop {
+  position: absolute; inset: 12px; z-index: 9; border: 2px dashed var(--accent); border-radius: 18px;
+  display: grid; place-items: center; background: var(--chrome); font-size: 18px; font-weight: 600;
+}
+#loading {
+  position: absolute; z-index: 9; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: var(--chrome); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; font-weight: 600;
+}
+#toast {
+  position: absolute; z-index: 10; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--fg); color: var(--stage); padding: 10px 14px; border-radius: 10px; font-size: 13px;
+  max-width: calc(100% - 32px); text-align: center; transition: opacity .2s;
+}
+@media (max-width: 520px) {
+  .brand { display: none; }
+  #pageLabel { min-width: 76px; }
+  .btn.textual span { display: none; }
+  .btn.textual { width: 38px; padding: 0; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) { .leaf, .bar, .switch span.track, .switch span.track::after { transition: none; } }
+</style>
+
+<div id="app">
+  <main id="stage" aria-label="페이지 보기 영역">
+    <div id="spread" class="shade"></div>
+  </main>
+
+  <header id="topbar" class="bar">
+    <div class="brand">펼침<b>뷰어</b></div>
+    <button class="btn primary textual" id="openBtn" type="button" aria-label="파일 열기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v2"/><path d="M3 19l3-8h15l-3 8z"/></svg>
+      <span>열기</span>
+    </button>
+    <div class="doc">
+      <span class="name" id="docName">예시 만화</span>
+      <span class="meta" id="docMeta">내 PDF·사진·ZIP을 열어 보세요</span>
+    </div>
+    <span class="chip" id="modeChip">2쪽</span>
+    <button class="btn icon" id="fsBtn" type="button" aria-label="전체 화면">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+    <button class="btn icon" id="setBtn" type="button" aria-label="보기 설정" aria-expanded="false" aria-controls="sheet">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+    <input type="file" id="fileInput" multiple accept="application/pdf,.pdf,image/*,.zip,.cbz" hidden>
+  </header>
+
+  <section id="sheet" hidden aria-label="보기 설정">
+    <div class="field">
+      <span class="label">한 화면에 보기</span>
+      <div class="seg" data-key="mode">
+        <button type="button" id="mode-auto" data-val="auto">자동<small>펼치면 2쪽</small></button>
+        <button type="button" id="mode-one" data-val="one">1쪽</button>
+        <button type="button" id="mode-two" data-val="two">2쪽</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="label">넘기는 방향</span>
+      <div class="seg" data-key="dir">
+        <button type="button" id="dir-rtl" data-val="rtl">만화책<small>오른쪽 → 왼쪽</small></button>
+        <button type="button" id="dir-ltr" data-val="ltr">문서·책<small>왼쪽 → 오른쪽</small></button>
+      </div>
+    </div>
+    <label class="switch" for="optCover">
+      <span class="txt">표지는 한 쪽만<small>짝이 안 맞으면 켜고 꺼 보세요</small></span>
+      <input type="checkbox" id="optCover"><span class="track"></span>
+    </label>
+    <label class="switch" for="optWide">
+      <span class="txt">가로로 긴 쪽은 단독으로<small>이미 펼침면으로 스캔된 쪽</small></span>
+      <input type="checkbox" id="optWide"><span class="track"></span>
+    </label>
+    <label class="switch" for="optFlip">
+      <span class="txt">책장 넘김 효과<small>탭하거나 끌면 종이처럼 넘어가요</small></span>
+      <input type="checkbox" id="optFlip"><span class="track"></span>
+    </label>
+    <label class="switch" for="optShade">
+      <span class="txt">가운데 접힘 그림자<small>종이책처럼 보이게</small></span>
+      <input type="checkbox" id="optShade"><span class="track"></span>
+    </label>
+    <label class="switch" for="optGap">
+      <span class="txt">두 쪽 사이 띄우기<small>폴드 접힘선에 글자가 걸릴 때</small></span>
+      <input type="checkbox" id="optGap"><span class="track"></span>
+    </label>
+    <label class="switch" for="optWake">
+      <span class="txt">읽는 동안 화면 켜두기</span>
+      <input type="checkbox" id="optWake"><span class="track"></span>
+    </label>
+    <div class="tips">
+      화면 양끝을 탭하거나 옆으로 밀면 넘어가요. 가운데를 탭하면 메뉴가 숨어요.
+      파일은 휴대폰 안에서만 열리고 어디에도 올라가지 않아요. 여러 장의 사진은 파일 이름 순서로 묶여요.
+    </div>
+  </section>
+
+  <footer id="bottombar" class="bar">
+    <button class="btn icon" id="leftBtn" type="button" aria-label="왼쪽 페이지로">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <input type="range" id="slider" min="0" max="0" value="0" aria-label="페이지 이동">
+    <span id="pageLabel">1 / 1</span>
+    <button class="btn icon" id="rightBtn" type="button" aria-label="오른쪽 페이지로">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+  </footer>
+
+  <div id="drop" hidden>여기에 놓으면 열려요</div>
+  <div id="loading" hidden>불러오는 중…</div>
+  <div id="toast" hidden></div>
+</div>
+
+<script>
+(() => {
+  const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+  const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const JSZIP = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+  const IMG_RE = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
+
+  const $ = (id) => document.getElementById(id);
+  const app = $("app"), stage = $("stage"), spreadEl = $("spread"), slider = $("slider");
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+
+  const settings = Object.assign(
+    { mode: "auto", dir: "rtl", cover: true, wide: true, shade: true, gap: false, wake: true, flip: true },
+    store.get("fv.settings", {})
+  );
+
+  // pages: { kind: "img", src, w, h } | { kind: "pdf", doc, n, w, h }
+  let book = { key: "sample", name: "예시 만화", pages: [], urls: [], docs: [] };
+  let pos = 0;           // index of the first page on screen
+  let spreads = [];
+  let two = false;
+  let renderToken = 0;
+
+  /* ---------- helpers ---------- */
+  let toastTimer;
+  function toast(msg, ms = 2600) {
+    const t = $("toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), ms);
+  }
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      if (document.querySelector(`script[src="${src}"]`)) return res();
+      const s = document.createElement("script");
+      s.src = src; s.onload = res; s.onerror = () => rej(new Error("라이브러리를 불러오지 못했어요. 인터넷 연결을 확인해 주세요."));
+      document.head.appendChild(s);
+    });
+  }
+  const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  const isWide = (p) => p && p.w && p.h && p.w > p.h * 1.15;
+
+  /* ---------- layout ---------- */
+  function wantTwo() {
+    if (settings.mode === "one") return false;
+    if (settings.mode === "two") return true;
+    const w = stage.clientWidth, h = stage.clientHeight;
+    return w / h >= 0.78 && w >= 560; // Fold inner screen ≈ 0.9 ratio, cover screen ≈ 0.45
+  }
+  function buildSpreads() {
+    const n = book.pages.length, out = [];
+    if (!two) { for (let i = 0; i < n; i++) out.push([i]); return out; }
+    let i = 0;
+    if (settings.cover && n) { out.push([0]); i = 1; }
+    while (i < n) {
+      const solo = (k) => settings.wide && isWide(book.pages[k]);
+      if (solo(i) || i + 1 >= n || solo(i + 1)) { out.push([i]); i++; }
+      else { out.push([i, i + 1]); i += 2; }
+    }
+    return out;
+  }
+  const spreadIndex = () => Math.max(0, spreads.findIndex((s) => s.includes(pos)));
+
+  function relayout(keepPos = true) {
+    two = wantTwo();
+    spreads = buildSpreads();
+    if (!keepPos) pos = 0;
+    $("modeChip").textContent = two ? "2쪽" : "1쪽";
+    slider.max = Math.max(0, spreads.length - 1);
+    slider.dir = settings.dir === "rtl" ? "rtl" : "ltr";
+    spreadEl.classList.toggle("gap", settings.gap);
+    spreadEl.classList.toggle("shade", settings.shade);
+    render();
+  }
+
+  /* ---------- page images ---------- */
+  const cache = new Map(); // key -> objectURL (rendered pdf pages)
+  function cachePut(key, url) {
+    cache.set(key, url);
+    while (cache.size > 14) { const [k, u] = cache.entries().next().value; URL.revokeObjectURL(u); cache.delete(k); }
+  }
+  async function pageSrc(i, boxW, boxH) {
+    const p = book.pages[i];
+    if (p.kind === "img") return p.src;
+    const page = await p.doc.getPage(p.n);
+    const vp1 = page.getViewport({ scale: 1 });
+    p.w = vp1.width; p.h = vp1.height;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    let scale = Math.min(boxW / vp1.width, boxH / vp1.height) * dpr;
+    scale = Math.min(scale, 4096 / Math.max(vp1.width, vp1.height));
+    scale = Math.ceil(scale * 4) / 4; // bucket so small resizes reuse the cache
+    const key = `${book.key}:${i}@${scale}`;
+    if (cache.has(key)) { const u = cache.get(key); cache.delete(key); cache.set(key, u); return u; }
+    const vp = page.getViewport({ scale });
+    const c = document.createElement("canvas");
+    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.92));
+    const url = URL.createObjectURL(blob);
+    cachePut(key, url);
+    return url;
+  }
+
+  function render() {
+    const token = ++renderToken;
+    spreadEl.replaceChildren();
+    const n = book.pages.length;
+    if (!n) return;
+    const si = spreadIndex();
+    const s = spreads[si];
+    pos = s[0];
+    const order = settings.dir === "rtl" ? [...s].reverse() : s;
+    const boxW = s.length === 2 ? stage.clientWidth / 2 : stage.clientWidth;
+    const boxH = stage.clientHeight;
+    order.forEach((idx, k) => {
+      const slot = document.createElement("div");
+      slot.className = "slot " + (s.length === 1 ? "solo" : k === 0 ? "left" : "right");
+      const wait = document.createElement("div");
+      wait.className = "wait"; wait.textContent = `${idx + 1}쪽 준비 중…`;
+      slot.appendChild(wait);
+      spreadEl.appendChild(slot);
+      pageSrc(idx, boxW, boxH).then((src) => {
+        if (token !== renderToken) return;
+        const img = new Image();
+        img.alt = `${idx + 1}쪽`; img.decoding = "async"; img.draggable = false;
+        img.onload = () => {
+          if (token !== renderToken) return;
+          const p = book.pages[idx];
+          if (!p.w) { p.w = img.naturalWidth; p.h = img.naturalHeight; }
+          // keep the spine shading on the paper, not the empty band above and below it
+          const shown = Math.min(slot.clientHeight, slot.clientWidth * img.naturalHeight / img.naturalWidth);
+          slot.style.setProperty("--inset", Math.max(0, (slot.clientHeight - shown) / 2) + "px");
+          wait.remove();
+        };
+        img.src = src;
+        slot.appendChild(img);
+      }).catch((e) => { wait.textContent = `${idx + 1}쪽을 그리지 못했어요`; console.error(e); });
+    });
+    // label
+    const first = Math.min(...s) + 1, last = Math.max(...s) + 1;
+    $("pageLabel").textContent = (first === last ? `${first}` : `${first}-${last}`) + ` / ${n}`;
+    slider.value = si;
+    store.set("fv.pos." + book.key, pos);
+    prefetch(si, boxW, boxH);
+  }
+  function prefetch(si, boxW, boxH) {
+    [si + 1, si - 1].forEach((k) => {
+      const s = spreads[k]; if (!s) return;
+      s.forEach((i) => {
+        const p = book.pages[i];
+        if (p.kind === "pdf") pageSrc(i, s.length === 2 ? stage.clientWidth / 2 : stage.clientWidth, boxH).catch(() => {});
+        else { const im = new Image(); im.src = p.src; }
+      });
+    });
+  }
+
+  /* ---------- navigation with page-turn motion ---------- */
+  const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let flip = null; // the turn in progress
+
+  // forward/back for a physical side of the screen
+  const deltaForSide = (side) => ((settings.dir === "rtl" ? side === "left" : side === "right") ? 1 : -1);
+
+  function half(slot, side, gap) {
+    const h = document.createElement("div");
+    h.className = "half " + side;
+    if (gap) h.classList.add("gapped");
+    if (slot) { const c = slot.cloneNode(true); c.className = "slot " + side; h.appendChild(c); }
+    return h;
+  }
+
+  // Starts a turn toward spread index si. The new spread is drawn underneath right away;
+  // the old pages ride on top as a leaf that rotates around the spine.
+  function beginFlip(delta) {
+    if (flip) finishFlip(true, true);
+    const si = spreadIndex() + delta;
+    if (si < 0) { toast("첫 페이지예요"); return null; }
+    if (si >= spreads.length) { toast("마지막 페이지예요"); return null; }
+    const oldKids = [...spreadEl.querySelectorAll(":scope > .slot")];
+    const oldFull = spreadEl.cloneNode(true);
+    const prevPos = pos;
+    pos = spreads[si][0];
+    render();
+    if (!settings.flip || reduceMotion) return null;
+
+    const newKids = [...spreadEl.querySelectorAll(":scope > .slot")];
+    const forward = delta > 0;
+    const layer = document.createElement("div");
+    layer.className = "flip-layer";
+    const leaf = document.createElement("div");
+    leaf.className = "leaf";
+    const front = document.createElement("div"); front.className = "face front";
+    const back = document.createElement("div"); back.className = "face back";
+    const cast = document.createElement("div"); cast.className = "cast";
+    let sign, book2 = oldKids.length === 2 && newKids.length === 2, backFill = null;
+
+    if (book2) {
+      // which half lifts: the one on the side we are reading toward
+      const leafSide = (settings.dir === "ltr") === forward ? "right" : "left";
+      const other = leafSide === "right" ? "left" : "right";
+      const idx = (s) => (s === "left" ? 0 : 1);
+      layer.appendChild(half(oldKids[idx(other)], other, settings.gap)); // old page stays put until covered
+      leaf.classList.add(leafSide);
+      leaf.style.transformOrigin = leafSide === "right" ? "left center" : "right center";
+      sign = leafSide === "right" ? -1 : 1;
+      const f = half(oldKids[idx(leafSide)], leafSide, settings.gap); f.classList.add("face", "front"); front.replaceWith(f);
+      backFill = () => {
+        back.replaceChildren();
+        const c = spreadEl.querySelectorAll(":scope > .slot")[idx(other)];
+        if (c) { const k = c.cloneNode(true); k.className = "slot " + other; back.appendChild(k); }
+      };
+      leaf.append(f, back);
+      cast.classList.add(other);
+      flip = { layer, leaf, front: f, back, sign, backFill, filled: false, prevPos, p: 0, cast };
+    } else {
+      // one page on screen: the whole page swings away around its spine edge
+      const hingeLeft = (settings.dir === "ltr") === forward;
+      leaf.classList.add("full");
+      leaf.style.transformOrigin = hingeLeft ? "left center" : "right center";
+      sign = hingeLeft ? -1 : 1;
+      oldFull.removeAttribute("id"); oldFull.className = spreadEl.className + " face front";
+      leaf.append(oldFull);
+      flip = { layer, leaf, front: oldFull, back: null, sign, backFill: null, filled: true, prevPos, p: 0, cast: null, full: true };
+    }
+    layer.appendChild(leaf);
+    if (flip.cast) layer.appendChild(cast);
+    spreadEl.appendChild(layer);
+    setFlip(0);
+    return flip;
+  }
+
+  function setFlip(p) {
+    const f = flip; if (!f) return;
+    f.p = p = Math.max(0, Math.min(1, p));
+    const deg = f.sign * (f.full ? 95 : 180) * p;
+    f.leaf.style.transform = `rotateY(${deg}deg)`;
+    const bend = Math.sin(Math.PI * p); // 0 → 1 → 0
+    f.front.style.filter = `brightness(${1 - 0.35 * Math.min(1, p * 2)})`;
+    if (f.back) f.back.style.filter = `brightness(${0.65 + 0.35 * Math.max(0, p * 2 - 1)})`;
+    if (f.full) f.leaf.style.opacity = String(1 - Math.max(0, p - 0.6) / 0.4);
+    if (f.cast) f.cast.style.opacity = String(0.55 * bend);
+    if (!f.filled && p >= 0.45) { f.filled = true; f.backFill(); }
+  }
+
+  function finishFlip(commit, instant = false) {
+    const f = flip; if (!f) return;
+    const from = f.p, to = commit ? 1 : 0;
+    const done = () => {
+      if (flip !== f) return;
+      f.layer.remove(); flip = null;
+      if (!commit) { pos = f.prevPos; render(); }
+    };
+    if (instant) { done(); return; }
+    const dur = 420 * Math.abs(to - from) + 60, t0 = performance.now();
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+    const step = (now) => {
+      if (flip !== f) return;
+      const t = Math.min(1, (now - t0) / dur);
+      setFlip(from + (to - from) * ease(t));
+      if (t < 1) requestAnimationFrame(step); else done();
+    };
+    requestAnimationFrame(step);
+  }
+
+  function go(delta) { if (beginFlip(delta)) finishFlip(true); }
+  // physical side: "left" or "right" on screen
+  function goSide(side) { go(deltaForSide(side)); }
+  $("leftBtn").onclick = () => goSide("left");
+  $("rightBtn").onclick = () => goSide("right");
+  slider.oninput = () => { const s = spreads[+slider.value]; if (s) { if (flip) finishFlip(true, true); pos = s[0]; render(); } };
+
+  document.addEventListener("keydown", (e) => {
+    if (e.target.closest && e.target.closest("input[type=range]")) return;
+    if (e.key === "ArrowLeft") goSide("left");
+    else if (e.key === "ArrowRight") goSide("right");
+    else if (e.key === " " || e.key === "PageDown") { e.preventDefault(); go(1); }
+    else if (e.key === "PageUp") go(-1);
+    else if (e.key === "Home") { pos = 0; render(); }
+    else if (e.key === "End") { pos = book.pages.length - 1; render(); }
+  });
+
+  // touch: tap the edges, or grab a page and drag it over; the leaf follows the finger
+  let start = null;
+  const zoomed = () => window.visualViewport && window.visualViewport.scale > 1.02;
+  stage.addEventListener("pointerdown", (e) => {
+    if (!e.isPrimary) return;
+    start = { x: e.clientX, y: e.clientY, t: performance.now(), drag: null, lastX: e.clientX, lastT: performance.now(), v: 0 };
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!start || !e.isPrimary || zoomed() || !$("sheet").hidden) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    const now = performance.now();
+    start.v = (e.clientX - start.lastX) / Math.max(1, now - start.lastT);
+    start.lastX = e.clientX; start.lastT = now;
+    if (!start.drag) {
+      if (Math.abs(dx) < 14 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      // dragging right pulls over the page on the left
+      const side = dx > 0 ? "left" : "right";
+      start.drag = { dir: Math.sign(dx), f: beginFlip(deltaForSide(side)) || "none" };
+      try { stage.setPointerCapture(e.pointerId); } catch {}
+    }
+    if (start.drag.f && start.drag.f !== "none" && flip === start.drag.f) {
+      const travel = stage.clientWidth * (flip.full ? 0.7 : 0.85);
+      setFlip((dx * start.drag.dir) / travel);
+    }
+  });
+  const endDrag = () => {
+    const d = start && start.drag;
+    if (d && d.f !== "none" && flip === d.f) {
+      const flick = start.v * d.dir > 0.5;
+      finishFlip(flip.p > 0.28 || flick);
+    }
+  };
+  stage.addEventListener("pointercancel", () => { endDrag(); start = null; });
+  stage.addEventListener("pointerup", (e) => {
+    if (!start || !e.isPrimary) { start = null; return; }
+    if (start.drag) { endDrag(); start = null; return; }
+    if (zoomed()) { start = null; return; }
+    const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+    start = null;
+    if (!$("sheet").hidden) { toggleSheet(false); return; }
+    if (dist > 12) return;
+    const r = stage.getBoundingClientRect();
+    const fx = (e.clientX - r.left) / r.width;
+    if (fx < 0.3) goSide("left");
+    else if (fx > 0.7) goSide("right");
+    else app.classList.toggle("immersive");
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => {
+      stage.style.touchAction = zoomed() ? "auto" : "pinch-zoom";
+    });
+  }
+
+  /* ---------- settings ---------- */
+  function toggleSheet(open) {
+    $("sheet").hidden = !open;
+    $("setBtn").setAttribute("aria-expanded", String(open));
+  }
+  $("setBtn").onclick = () => toggleSheet($("sheet").hidden);
+  function syncSettingsUI() {
+    document.querySelectorAll(".seg").forEach((seg) => {
+      seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(settings[seg.dataset.key] === b.dataset.val)));
+    });
+    $("optCover").checked = settings.cover; $("optWide").checked = settings.wide;
+    $("optShade").checked = settings.shade; $("optGap").checked = settings.gap; $("optWake").checked = settings.wake; $("optFlip").checked = settings.flip;
+  }
+  document.querySelectorAll(".seg").forEach((seg) => {
+    seg.addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      settings[seg.dataset.key] = b.dataset.val; saveSettings();
+    });
+  });
+  [["optCover", "cover"], ["optWide", "wide"], ["optShade", "shade"], ["optGap", "gap"], ["optWake", "wake"], ["optFlip", "flip"]].forEach(([id, k]) => {
+    $(id).onchange = () => { settings[k] = $(id).checked; saveSettings(); if (k === "wake") keepAwake(); };
+  });
+  function saveSettings() { store.set("fv.settings", settings); syncSettingsUI(); relayout(); }
+
+  /* ---------- wake lock & fullscreen ---------- */
+  let wakeLock = null;
+  async function keepAwake() {
+    try {
+      if (!settings.wake) { if (wakeLock) { await wakeLock.release(); wakeLock = null; } return; }
+      if ("wakeLock" in navigator && document.visibilityState === "visible" && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => (wakeLock = null));
+      }
+    } catch { /* not allowed here; fine */ }
+  }
+  document.addEventListener("visibilitychange", keepAwake);
+  $("fsBtn").onclick = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch { toast("여기서는 전체 화면이 안 돼요. 가운데를 탭하면 메뉴가 숨어요"); }
+  };
+
+  /* ---------- opening files ---------- */
+  $("openBtn").onclick = () => $("fileInput").click();
+  $("fileInput").onchange = (e) => { if (e.target.files.length) openFiles([...e.target.files]); e.target.value = ""; };
+
+  let dragDepth = 0;
+  app.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; $("drop").hidden = false; });
+  app.addEventListener("dragover", (e) => e.preventDefault());
+  app.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
+  app.addEventListener("drop", (e) => {
+    e.preventDefault(); dragDepth = 0; $("drop").hidden = true;
+    if (e.dataTransfer.files.length) openFiles([...e.dataTransfer.files]);
+  });
+
+  async function readPdf(file) {
+    await loadScript(PDFJS_WORKER); // runs the worker on the page itself; separate worker files are blocked here
+    await loadScript(PDFJS);
+    const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
+    const pages = [];
+    for (let n = 1; n <= doc.numPages; n++) pages.push({ kind: "pdf", doc, n, w: 0, h: 0 });
+    return { doc, pages };
+  }
+  async function readZip(file) {
+    await loadScript(JSZIP);
+    const zip = await window.JSZip.loadAsync(file);
+    const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir && IMG_RE.test(n) && !/(^|\/)(__MACOSX|\.)/.test(n)).sort(natural);
+    const urls = [];
+    for (const n of names) urls.push(URL.createObjectURL(await zip.files[n].async("blob")));
+    return urls;
+  }
+
+  async function openFiles(files) {
+    files.sort((a, b) => natural(a.name, b.name));
+    $("loading").hidden = false; $("loading").textContent = "불러오는 중…";
+    const next = { key: "", name: "", pages: [], urls: [], docs: [] };
+    try {
+      for (const f of files) {
+        const name = f.name.toLowerCase();
+        if (f.type === "application/pdf" || name.endsWith(".pdf")) {
+          $("loading").textContent = `${f.name} 여는 중…`;
+          const { doc, pages } = await readPdf(f);
+          next.docs.push(doc); next.pages.push(...pages);
+        } else if (/\.(zip|cbz)$/.test(name)) {
+          $("loading").textContent = `${f.name} 푸는 중…`;
+          const urls = await readZip(f);
+          next.urls.push(...urls); next.pages.push(...urls.map((src) => ({ kind: "img", src, w: 0, h: 0 })));
+        } else if (f.type.startsWith("image/") || IMG_RE.test(name)) {
+          const src = URL.createObjectURL(f);
+          next.urls.push(src); next.pages.push({ kind: "img", src, w: 0, h: 0 });
+        }
+      }
+    } catch (e) {
+      $("loading").hidden = true;
+      toast(e.message && e.message.includes("라이브러리") ? e.message : "파일을 열지 못했어요. 암호가 걸렸거나 손상된 파일인지 확인해 주세요.", 4200);
+      console.error(e); return;
+    }
+    $("loading").hidden = true;
+    if (!next.pages.length) return toast("열 수 있는 PDF, 사진, ZIP(CBZ) 파일이 없어요", 3600);
+
+    // swap books
+    book.urls.forEach((u) => URL.revokeObjectURL(u));
+    book.docs.forEach((d) => d.destroy && d.destroy());
+    cache.forEach((u) => URL.revokeObjectURL(u)); cache.clear();
+
+    const title = files.length === 1 ? files[0].name.replace(/\.[^.]+$/, "") : `${files[0].name.replace(/\.[^.]+$/, "")} 외 ${files.length - 1}개`;
+    next.name = title;
+    next.key = title + "|" + next.pages.length;
+    book = next;
+    $("docName").textContent = title;
+    $("docMeta").textContent = `${book.pages.length}쪽`;
+    pos = Math.min(store.get("fv.pos." + book.key, 0), book.pages.length - 1);
+    relayout();
+    if (pos > 0) toast(`읽던 ${pos + 1}쪽부터 이어서 열었어요`);
+    keepAwake();
+    measurePages(book);
+  }
+
+  // learn each page's shape in the background so wide (double-page) scans can stand alone
+  async function measurePages(b) {
+    for (let i = 0; i < b.pages.length; i++) {
+      if (b !== book) return;
+      const p = b.pages[i];
+      if (p.w) continue;
+      try {
+        if (p.kind === "pdf") {
+          const vp = (await p.doc.getPage(p.n)).getViewport({ scale: 1 }); p.w = vp.width; p.h = vp.height;
+        } else {
+          await new Promise((res) => { const im = new Image(); im.onload = () => { p.w = im.naturalWidth; p.h = im.naturalHeight; res(); }; im.onerror = res; im.src = p.src; });
+        }
+      } catch {}
+    }
+    if (b === book && settings.wide && b.pages.some(isWide)) relayout();
+  }
+
+  /* ---------- sample comic so the viewer opens in a working state ---------- */
+  function makeSample() {
+    const W = 840, H = 1200, pages = [];
+    const ink = "#1b1e22", paper = "#fbfbf9", tone = "#cfd5dc", acc = "#1f7a6d";
+    const draw = (fn, w = W) => { const c = document.createElement("canvas"); c.width = w; c.height = H; const x = c.getContext("2d"); x.fillStyle = paper; x.fillRect(0, 0, w, H); fn(x, w); return c.toDataURL("image/jpeg", 0.86); };
+    const font = (x, size, weight = "400") => (x.font = `${weight} ${size}px "Black Han Sans", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`);
+    const bubble = (x, cx, cy, rw, rh, text, size = 34) => {
+      x.fillStyle = "#fff"; x.strokeStyle = ink; x.lineWidth = 4;
+      x.beginPath(); x.ellipse(cx, cy, rw, rh, 0, 0, Math.PI * 2); x.fill(); x.stroke();
+      x.fillStyle = ink; font(x, size); x.textAlign = "center"; x.textBaseline = "middle";
+      text.split("\n").forEach((t, i, a) => x.fillText(t, cx, cy + (i - (a.length - 1) / 2) * size * 1.25));
+    };
+    const panel = (x, px, py, pw, ph, shade) => {
+      if (shade) { x.fillStyle = tone; x.fillRect(px, py, pw, ph); }
+      x.strokeStyle = ink; x.lineWidth = 6; x.strokeRect(px, py, pw, ph);
+    };
+    const folio = (x, n, w) => { x.fillStyle = ink; x.font = '500 26px "IBM Plex Mono", monospace'; x.textAlign = "center"; x.fillText(`- ${n} -`, w / 2, H - 34); };
+    const story = [
+      ["폴드를\n펼쳤다!", "화면이\n두 배로"],
+      ["만화는 원래\n두 쪽씩 보는 거지", "오른쪽부터\n읽어요"],
+      ["왼쪽 끝을\n탭하면", "다음 장으로\n넘어가요"],
+      ["가운데를 탭하면", "메뉴가\n사라져요"],
+      ["접으면\n한 쪽 보기로", "자동으로\n바뀌어요"],
+      ["표지가 밀리면", "설정에서\n'표지는 한 쪽만'"],
+      ["PDF도", "사진 묶음도\nZIP도 OK"],
+    ];
+    // cover
+    pages.push(draw((x) => {
+      x.fillStyle = acc; x.fillRect(0, 0, W, H);
+      x.fillStyle = paper; x.fillRect(60, 60, W - 120, H - 120);
+      x.fillStyle = ink; font(x, 120); x.textAlign = "center"; x.fillText("펼침 뷰어", W / 2, 330);
+      font(x, 48); x.fillStyle = acc; x.fillText("예시 만화 · 1권", W / 2, 420);
+      x.strokeStyle = ink; x.lineWidth = 10; x.strokeRect(W / 2 - 170, 520, 340, 420);
+      x.beginPath(); x.moveTo(W / 2, 520); x.lineTo(W / 2, 940); x.stroke();
+      x.font = '500 30px "IBM Plex Mono", monospace'; x.fillStyle = ink; x.fillText("SAMPLE · 이 표지는 한 쪽만", W / 2, 1040);
+    }));
+    story.forEach(([a, b], i) => {
+      pages.push(draw((x) => {
+        panel(x, 50, 50, W - 100, 520, i % 2 === 0);
+        panel(x, 50, 600, (W - 130) / 2, 520, false);
+        panel(x, 80 + (W - 130) / 2, 600, (W - 130) / 2, 520, i % 2 === 1);
+        bubble(x, W / 2, 300, 250, 140, a, 46);
+        bubble(x, W * 0.27, 860, 150, 110, b, 32);
+        x.fillStyle = ink; font(x, 140); x.textAlign = "center"; x.globalAlpha = 0.12; x.fillText(String(i + 2), W * 0.74, 900); x.globalAlpha = 1;
+        folio(x, i + 2, W);
+      }));
+    });
+    // a double-page scan (wide) to show the solo option
+    pages.push(draw((x, w) => {
+      panel(x, 50, 50, w - 100, H - 140, true);
+      bubble(x, w / 2, H / 2 - 40, 460, 190, "원래 펼침면으로 그린 장면은\n한 장 통째로 크게!", 54);
+      folio(x, "9-10", w);
+    }, W * 2));
+    pages.push(draw((x) => { x.fillStyle = ink; font(x, 90); x.textAlign = "center"; x.fillText("끝", W / 2, H / 2); folio(x, 11, W); }));
+    return pages.map((src) => ({ kind: "img", src, w: 0, h: 0 }));
+  }
+
+  /* ---------- boot ---------- */
+  syncSettingsUI();
+  window.addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(() => relayout(), 120); });
+  const boot = () => {
+    book.pages = makeSample();
+    pos = 0;
+    relayout();
+    measurePages(book);
+    if (!store.get("fv.seenHint", false)) { toast("양끝을 탭하거나 밀어서 넘겨 보세요", 3600); store.set("fv.seenHint", true); }
+  };
+  (document.fonts && document.fonts.ready ? Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1200))]) : Promise.resolve()).then(boot);
+})();
+</script>

@@ -1,5 +1,5 @@
 // 펼침 뷰어: works offline after the first visit
-const CACHE = "fold-viewer-v1";
+const CACHE = "fold-viewer-v2";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png",
   "lib/pdf.min.js", "lib/pdf.worker.min.js", "lib/jszip.min.js"];
 self.addEventListener("install", (e) => {

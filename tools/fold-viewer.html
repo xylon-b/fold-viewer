@@ -56,18 +56,29 @@ body {
 .slot.left img { object-position: right center; }
 .slot.right img { object-position: left center; }
 .slot.solo img { object-position: center; }
-#spread.shade:not(.gap) .slot.left::after, #spread.shade:not(.gap) .slot.right::after {
+#spread.shade:not(.gap) .slot.left::after, #spread.shade:not(.gap) .slot.right::after,
+.curl.shade .slot.left::after, .curl.shade .slot.right::after {
   content: ""; position: absolute; top: var(--inset, 0px); bottom: var(--inset, 0px); width: 28px; pointer-events: none;
 }
-#spread.shade:not(.gap) .slot.left::after { right: 0; background: linear-gradient(to left, var(--spine), transparent); }
-#spread.shade:not(.gap) .slot.right::after { left: 0; background: linear-gradient(to right, var(--spine), transparent); }
+#spread.shade:not(.gap) .slot.left::after, .curl.shade .slot.left::after { right: 0; background: linear-gradient(to left, var(--spine), transparent); }
+#spread.shade:not(.gap) .slot.right::after, .curl.shade .slot.right::after { left: 0; background: linear-gradient(to right, var(--spine), transparent); }
 .slot .wait {
   position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted);
   font-family: var(--font-mono); font-size: 13px;
 }
 
 /* page curl overlay, drawn frame by frame while a page turns */
-.curl { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.curl { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.curl .slot { will-change: clip-path; }
+.curl .slot img { filter: none; } /* the page underneath already casts this shadow */
+.curl-shade, .curl-flap { position: absolute; }
+.curl-flapwrap { position: absolute; inset: 0; }
+.curl-flap { transform-origin: 0 0; background: #f2f1ec; overflow: hidden; }
+.curl-back { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; transform: scaleX(-1); }
+.curl-back.ghost { transform: none; opacity: 0.09; }
+.curl-spine { position: absolute; top: 0; bottom: 0; width: 28px; }
+.curl-spine.at-left { left: 0; background: linear-gradient(to right, var(--spine), transparent); }
+.curl-spine.at-right { right: 0; background: linear-gradient(to left, var(--spine), transparent); }
 
 /* bookshelf */
 #shelf { position: absolute; inset: 0; z-index: 7; background: var(--stage); display: flex; flex-direction: column; }
@@ -286,7 +297,7 @@ button { font: inherit; color: inherit; }
     </header>
     <div class="shelf-body">
       <div id="shelfGrid" class="shelf-grid"></div>
-      <p class="tips">PDF와 ZIP은 한 파일이 한 권이 되고, 사진은 함께 고른 것끼리 한 권으로 묶여요. 책과 읽던 쪽은 이 기기에만 저장돼요.</p>
+      <p class="tips">PDF와 ZIP은 한 파일이 한 권이 되고, 사진은 함께 고른 것끼리 한 권으로 묶여요. ZIP은 처음 열 때 한 번만 풀어서 그림으로 저장해 둬요. 책과 읽던 쪽은 이 기기에만 저장돼요.</p>
     </div>
   </section>
 
@@ -461,7 +472,6 @@ button { font: inherit; color: inherit; }
      along the line halfway between the two. The page stays bound at the spine. */
   const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   let flip = null; // the turn in progress
-  const PAPER_BACK = "#f2f1ec";
 
   // forward/back for a physical side of the screen
   const deltaForSide = (side) => ((settings.dir === "rtl" ? side === "left" : side === "right") ? 1 : -1);
@@ -484,7 +494,7 @@ button { font: inherit; color: inherit; }
       const img = slot.querySelector("img");
       if (!readyImg(img)) return null;
       const side = slot.classList.contains("left") ? "left" : slot.classList.contains("right") ? "right" : "solo";
-      return { img, side, rect: pageRect(img, slot, base) };
+      return { img, slot, side, rect: pageRect(img, slot, base), box: boxOf(slot, base) };
     });
   }
 
@@ -497,11 +507,18 @@ button { font: inherit; color: inherit; }
     }
     return out;
   }
-  function pathPoly(ctx, pts) {
-    ctx.beginPath();
-    pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
-    ctx.closePath();
+  const px = (v) => `${Math.round(v * 100) / 100}px`;
+  const polyCss = (pts, ox, oy) => `polygon(${pts.map((p) => `${px(p[0] - ox)} ${px(p[1] - oy)}`).join(",")})`;
+  // a CSS linear gradient for a box that starts at the line through M, running in direction u,
+  // with stops given in pixels from that line
+  function gradCss(box, M, u, stops) {
+    const th = Math.atan2(u.x, -u.y);
+    const L = Math.abs(box.w * Math.sin(th)) + Math.abs(box.h * Math.cos(th));
+    const off = (M.x - (box.x + box.w / 2)) * u.x + (M.y - (box.y + box.h / 2)) * u.y + L / 2;
+    return `linear-gradient(${th}rad, ${stops.map(([c, d]) => `${c} ${px(off + d)}`).join(", ")})`;
   }
+  const el = (cls, parent) => { const d = document.createElement("div"); d.className = cls; parent.appendChild(d); return d; };
+  const boxOf = (node, base) => { const b = node.getBoundingClientRect(); return { x: b.left - base.left, y: b.top - base.top, w: b.width, h: b.height }; };
 
   // side: which page lifts ("left"/"right" on screen). touch: grab point in stage coords, or null for a tap
   function beginCurl(side, touch) {
@@ -523,20 +540,40 @@ button { font: inherit; color: inherit; }
     // the paper is held at its outer edge, at the height of your finger (or a thumb at the lower corner for a tap)
     const O = { x: outerX, y: touch ? clamp(touch.y, R.y + 1, R.y + R.h - 1) : R.y + R.h * 0.86 };
     const ST = { x: spineX, y: R.y }, SB = { x: spineX, y: R.y + R.h };
-    const cv = document.createElement("canvas");
-    cv.className = "curl";
-    const base = stage.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cv.width = Math.round(base.width * dpr); cv.height = Math.round(base.height * dpr);
-    stage.appendChild(cv);
-    const ctx = cv.getContext("2d");
-    ctx.imageSmoothingQuality = "high";
+
+    // The turn is drawn with ordinary page images (clipped and mirrored copies), the same way the pages
+    // are shown at rest, so colors and brightness stay exactly the same while a page moves.
+    const layer = document.createElement("div");
+    layer.className = "curl" + (settings.shade && !settings.gap ? " shade" : "");
+    const place = (o) => {
+      const c = o.slot.cloneNode(true);
+      c.style.cssText += `;position:absolute;left:${px(o.box.x)};top:${px(o.box.y)};width:${px(o.box.w)};height:${px(o.box.h)};flex:none`;
+      layer.appendChild(c);
+      return c;
+    };
+    if (still) place(still);
+    const leafEl = place(leaf);
+    const under = el("curl-shade", layer);           // shadow on the page being revealed
+    const flat = el("curl-shade", layer);            // shadow on the flat page under the fold
+    const flapWrap = el("curl-flapwrap", layer);     // casts the flap's drop shadow
+    const flap = el("curl-flap", flapWrap);
+    flap.style.cssText = `left:${px(R.x)};top:${px(R.y)};width:${px(R.w)};height:${px(R.h)}`;
+    const back = document.createElement("img");
+    back.alt = ""; back.draggable = false; back.className = "curl-back";
+    flap.appendChild(back);
+    const backSpine = el("curl-spine " + (side === "right" ? "at-left" : "at-right"), flap);
+    const light = el("curl-shade", flap);            // light across the curl
+    if (!(old.length === 2 && settings.shade && !settings.gap)) backSpine.hidden = true;
+    if (old.length !== 2) {
+      // a single sheet: plain paper on the back with the ink showing through
+      back.src = leaf.img.src; back.classList.add("ghost");
+    }
+    stage.appendChild(layer);
     flip = {
-      cv, ctx, dpr, W: base.width, H: base.height, side, leaf, still, R, spineX, O, F: { ...O },
+      layer, leafEl, leafBox: leaf.box, under, flat, flapWrap, flap, back, light, backSet: old.length !== 2,
+      side, leaf, R, spineX, O, F: { ...O },
       T: { x: 2 * spineX - O.x, y: O.y }, ST, SB, D1: Math.hypot(O.x - ST.x, O.y - ST.y), D2: Math.hypot(O.x - SB.x, O.y - SB.y),
-      prevPos, otherSide: side === "right" ? "left" : "right", twoUp: old.length === 2,
-      // match the page's own spine shading so nothing jumps when the overlay comes and goes
-      spine: old.length === 2 && settings.shade && !settings.gap ? getComputedStyle(document.documentElement).getPropertyValue("--spine").trim() : null
+      prevPos, otherSide: side === "right" ? "left" : "right", twoUp: old.length === 2
     };
     drawCurl(flip);
     return flip;
@@ -562,97 +599,55 @@ button { font: inherit; color: inherit; }
     return readyImg(img) ? img : null;
   }
 
-  // the soft shadow in the gutter, drawn on a page whose spine edge is at x = edge
-  function spineShade(ctx, f, r, edge) {
-    if (!f.spine) return;
-    const w = 28, dir = edge > r.x + r.w / 2 ? -1 : 1;
-    const g = ctx.createLinearGradient(edge, 0, edge + dir * w, 0);
-    g.addColorStop(0, f.spine); g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(dir > 0 ? edge : edge - w, r.y, w, r.h);
-  }
-
   function drawCurl(f) {
-    const { ctx, R, O, F } = f;
-    ctx.setTransform(f.dpr, 0, 0, f.dpr, 0, 0);
-    ctx.clearRect(0, 0, f.W, f.H);
-    if (f.still) {
-      const r = f.still.rect;
-      ctx.drawImage(f.still.img, r.x, r.y, r.w, r.h);
-      spineShade(ctx, f, r, f.still.side === "left" ? r.x + r.w : r.x);
-    }
+    const { R, O, F } = f;
+    if (!f.backSet) { const b = backImage(f); if (b) { f.back.src = b.src; f.backSet = true; } }
     const dx = F.x - O.x, dy = F.y - O.y, d = Math.hypot(dx, dy);
-    if (d < 0.5) { ctx.drawImage(f.leaf.img, R.x, R.y, R.w, R.h); spineShade(ctx, f, R, f.spineX); return; }
+    if (d < 0.5) {
+      f.leafEl.style.clipPath = ""; f.flapWrap.hidden = true; f.under.hidden = true; f.flat.hidden = true;
+      return;
+    }
+    f.flapWrap.hidden = false; f.under.hidden = false; f.flat.hidden = false;
     const nx = dx / d, ny = dy / d, mx = (O.x + F.x) / 2, my = (O.y + F.y) / 2;
+    const M = { x: mx, y: my };
     const s = (p) => (p[0] - mx) * nx + (p[1] - my) * ny; // < 0 on the lifted side
     const rect = [[R.x, R.y], [R.x + R.w, R.y], [R.x + R.w, R.y + R.h], [R.x, R.y + R.h]];
-    const flat = clipPoly(rect, s);
-    const lifted = clipPoly(rect, (p) => -s(p));
-    const k = 2 * (mx * nx + my * ny);
-    const reflect = (p) => { const t = s(p) * 2; return [p[0] - t * nx, p[1] - t * ny]; };
-    const flap = lifted.map(reflect);
+    const flatPts = clipPoly(rect, s);
+    const liftPts = clipPoly(rect, (p) => -s(p));
     const prog = clamp(curlProgress(f), 0, 1);
     // shadows grow in as the paper lifts and soften as it settles, so nothing pops
     const fade = (1 - Math.pow(prog, 3)) * Math.min(1, d / 70);
+    const a = (v) => `rgba(0,0,0,${(v * fade).toFixed(3)})`;
+    const w = (v) => `rgba(255,255,255,${(v * fade).toFixed(3)})`;
 
     // 1. the part of the page still lying flat
-    if (flat.length > 2) {
-      ctx.save(); pathPoly(ctx, flat); ctx.clip();
-      ctx.drawImage(f.leaf.img, R.x, R.y, R.w, R.h);
-      spineShade(ctx, f, R, f.spineX);
-      // the lifted paper darkens the flat page right under the fold
-      const w0 = clamp(d * 0.12, 6, 36);
-      const g0 = ctx.createLinearGradient(mx, my, mx + nx * w0, my + ny * w0);
-      g0.addColorStop(0, `rgba(0,0,0,${0.22 * fade})`); g0.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = g0; ctx.fillRect(0, 0, f.W, f.H);
-      ctx.restore();
-    }
+    const lb = f.leafBox;
+    f.leafEl.style.clipPath = flatPts.length > 2 ? polyCss(flatPts, lb.x, lb.y) : "polygon(0 0,0 0,0 0)";
+    const box = { x: R.x, y: R.y, w: R.w, h: R.h };
+    const setShade = (node, pts, bg) => {
+      node.style.cssText = `left:${px(R.x)};top:${px(R.y)};width:${px(R.w)};height:${px(R.h)}`;
+      node.style.clipPath = pts.length > 2 ? polyCss(pts, R.x, R.y) : "polygon(0 0,0 0,0 0)";
+      node.style.background = bg;
+    };
+    const w0 = clamp(d * 0.12, 6, 36), w1 = clamp(d * 0.35, 10, 90);
+    setShade(f.flat, flatPts, gradCss(box, M, { x: nx, y: ny }, [[a(0.22), 0], ["rgba(0,0,0,0)", w0]]));
     // 2. shadow the curling paper casts on the page being revealed
-    if (lifted.length > 2) {
-      ctx.save(); pathPoly(ctx, lifted); ctx.clip();
-      const w1 = clamp(d * 0.35, 10, 90);
-      const g1 = ctx.createLinearGradient(mx, my, mx - nx * w1, my - ny * w1);
-      g1.addColorStop(0, `rgba(0,0,0,${0.38 * fade})`); g1.addColorStop(0.35, `rgba(0,0,0,${0.12 * fade})`); g1.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = g1; ctx.fillRect(0, 0, f.W, f.H);
-      ctx.restore();
-    }
-    if (flap.length < 3) return;
-    // 3. the folded-over flap: soft drop shadow, then its back side
-    ctx.save();
-    ctx.shadowColor = `rgba(0,0,0,${0.32 * fade})`;
-    ctx.shadowBlur = 22 * f.dpr * (0.4 + 0.6 * Math.sin(Math.PI * Math.min(1, prog + 0.08)));
-    ctx.shadowOffsetX = -nx * 6 * f.dpr * fade; ctx.shadowOffsetY = -ny * 6 * f.dpr * fade;
-    pathPoly(ctx, flap); ctx.fillStyle = PAPER_BACK; ctx.fill();
-    ctx.restore();
+    setShade(f.under, liftPts, gradCss(box, M, { x: -nx, y: -ny }, [[a(0.38), 0], [a(0.12), w1 * 0.35], ["rgba(0,0,0,0)", w1]]));
 
-    ctx.save();
-    pathPoly(ctx, flap); ctx.clip();
-    // mirror across the fold line, then draw what is printed on the back of this sheet
-    ctx.transform(1 - 2 * nx * nx, -2 * nx * ny, -2 * nx * ny, 1 - 2 * ny * ny, k * nx, k * ny);
-    const back = backImage(f);
-    if (back) {
-      ctx.save();
-      ctx.translate(R.x + R.w, R.y); ctx.scale(-1, 1);
-      ctx.drawImage(back, 0, 0, R.w, R.h);
-      ctx.restore();
-      spineShade(ctx, f, R, f.spineX); // lands in the other page's gutter once mirrored
-    } else {
-      ctx.fillStyle = PAPER_BACK; ctx.fillRect(R.x, R.y, R.w, R.h);
-      ctx.globalAlpha = 0.09; ctx.drawImage(f.leaf.img, R.x, R.y, R.w, R.h); // ink showing through
-    }
-    ctx.restore();
-
-    // 4. light across the curl: dark in the crease, a bright ridge, then flattening out
+    // 3. the folded-over flap: the lifted part, mirrored across the fold line
+    const A = [1 - 2 * nx * nx, -2 * nx * ny, -2 * nx * ny, 1 - 2 * ny * ny];
+    const k = 2 * (mx * nx + my * ny);
+    const tx = k * nx + A[0] * R.x + A[2] * R.y - R.x, ty = k * ny + A[1] * R.x + A[3] * R.y - R.y;
+    f.flap.style.transform = `matrix(${A.map((v) => v.toFixed(6)).join(",")},${tx.toFixed(3)},${ty.toFixed(3)})`;
+    f.flap.style.clipPath = liftPts.length > 2 ? polyCss(liftPts, R.x, R.y) : "polygon(0 0,0 0,0 0)";
+    const blur = 22 * (0.4 + 0.6 * Math.sin(Math.PI * Math.min(1, prog + 0.08)));
+    f.flapWrap.style.filter = `drop-shadow(${px(-nx * 6 * fade)} ${px(-ny * 6 * fade)} ${px(blur / 2)} ${a(0.32)})`;
+    // 4. light across the curl (drawn before mirroring, so it runs from the fold toward the grabbed edge)
     let depth = 1;
-    flap.forEach((p) => (depth = Math.max(depth, s(p))));
-    ctx.save(); pathPoly(ctx, flap); ctx.clip();
-    const g2 = ctx.createLinearGradient(mx, my, mx + nx * depth, my + ny * depth);
-    g2.addColorStop(0, `rgba(0,0,0,${0.26 * fade})`);
-    g2.addColorStop(Math.min(0.5, 14 / depth), `rgba(255,255,255,${0.28 * fade})`);
-    g2.addColorStop(Math.min(0.8, 60 / depth), `rgba(255,255,255,${0.06 * fade})`);
-    g2.addColorStop(1, `rgba(0,0,0,${0.10 * fade})`);
-    ctx.fillStyle = g2; ctx.fillRect(0, 0, f.W, f.H);
-    ctx.restore();
+    liftPts.forEach((p) => (depth = Math.max(depth, -s(p))));
+    f.light.style.cssText = "left:0;top:0;width:100%;height:100%";
+    f.light.style.background = gradCss({ x: 0, y: 0, w: R.w, h: R.h }, { x: mx - R.x, y: my - R.y }, { x: -nx, y: -ny },
+      [[a(0.26), 0], [w(0.28), Math.min(depth * 0.5, 14)], [w(0.06), Math.min(depth * 0.8, 60)], [a(0.10), depth]]);
   }
 
   function setF(P) { if (!flip) return; flip.F = constrain(flip, P); drawCurl(flip); }
@@ -675,13 +670,9 @@ button { font: inherit; color: inherit; }
   function finishCurl(commit) {
     const f = flip; if (!f) return;
     flip = null;
-    if (commit) {
-      f.cv.style.transition = "opacity .14s linear"; f.cv.style.opacity = "0";
-      setTimeout(() => f.cv.remove(), 160);
-      return;
-    }
+    if (commit) { f.layer.remove(); return; }
     pos = f.prevPos; render();
-    setTimeout(() => f.cv.remove(), 120); // let the old pages paint before the overlay goes
+    setTimeout(() => f.layer.remove(), 120); // let the old pages paint before the overlay goes
   }
 
   function go(delta) {
@@ -827,14 +818,21 @@ button { font: inherit; color: inherit; }
     for (let n = 1; n <= doc.numPages; n++) pages.push({ kind: "pdf", doc, n, w: 0, h: 0 });
     return { doc, pages };
   }
-  async function readZip(file) {
+  const MIME = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", avif: "image/avif", bmp: "image/bmp" };
+  // pull the pictures out of a ZIP/CBZ, in reading order, as plain image files
+  async function unzipImages(file) {
     await loadScript(JSZIP);
     const zip = await window.JSZip.loadAsync(file);
     const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir && IMG_RE.test(n) && !/(^|\/)(__MACOSX|\.)/.test(n)).sort(natural);
-    const urls = [];
-    for (const n of names) urls.push(URL.createObjectURL(await zip.files[n].async("blob")));
-    return urls;
+    const out = [];
+    for (const n of names) {
+      const blob = await zip.files[n].async("blob");
+      const ext = n.split(".").pop().toLowerCase();
+      out.push(new File([blob], n.split("/").pop(), { type: MIME[ext] || "image/jpeg" }));
+    }
+    return out;
   }
+
 
   /* ---------- bookshelf: books and reading spots are kept on this device ---------- */
   const db = (() => {
@@ -906,15 +904,27 @@ button { font: inherit; color: inherit; }
     $("loading").hidden = false; $("loading").textContent = "불러오는 중…";
     const next = { key: rec.id, name: rec.title, pages: [], urls: [], docs: [], rec };
     try {
+      // a ZIP is unpacked only once: the pictures are kept in place of the ZIP, so later opens are instant
+      if (rec.files.some(isZip)) {
+        const files = [];
+        for (const f of rec.files) {
+          if (!isZip(f)) { files.push(f); continue; }
+          $("loading").textContent = `${f.name} 푸는 중… (처음 한 번만)`;
+          files.push(...(await unzipImages(f)));
+        }
+        rec.files = files;
+        const stored = await db.get("books", rec.id);
+        if (stored) {
+          stored.files = files;
+          $("loading").textContent = "푼 그림을 폰에 저장하는 중…";
+          await db.put("books", stored).catch((e) => { console.warn(e); toast("저장 공간이 모자라서 풀어 둔 그림을 저장하지 못했어요", 3600); });
+        }
+      }
       for (const f of rec.files) {
         if (isPdf(f)) {
           $("loading").textContent = `${f.name} 여는 중…`;
           const { doc, pages } = await readPdf(f);
           next.docs.push(doc); next.pages.push(...pages);
-        } else if (isZip(f)) {
-          $("loading").textContent = `${f.name} 푸는 중…`;
-          const urls = await readZip(f);
-          next.urls.push(...urls); next.pages.push(...urls.map((src) => ({ kind: "img", src, w: 0, h: 0 })));
         } else {
           const src = URL.createObjectURL(f);
           next.urls.push(src); next.pages.push({ kind: "img", src, w: 0, h: 0 });

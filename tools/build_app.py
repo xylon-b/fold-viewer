@@ -31,7 +31,24 @@ head='''<!doctype html>
 a=s.index('<div id="app">')
 tail='''
 <script>
-if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+// pick up new versions right away: skip the browser's HTTP cache for sw.js and reload once the new version takes over
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    try { sessionStorage.setItem("fv.updated", "1"); } catch {}
+    location.reload();
+  });
+  addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => r.update()).catch(() => {});
+    try { if (sessionStorage.getItem("fv.updated")) { sessionStorage.removeItem("fv.updated"); setTimeout(() => { const t = document.getElementById("toast"); if (t) { t.textContent = "새 버전으로 업데이트했어요"; t.hidden = false; setTimeout(() => (t.hidden = true), 2600); } }, 600); } } catch {}
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {});
+  });
+}
 </script>
 </body>
 </html>
@@ -59,10 +76,10 @@ open(OUT+'/manifest.webmanifest','w').write('''{
 ''')
 open(OUT+'/sw.js','w').write('''// 펼침 뷰어: works offline after the first visit
 const CACHE = "fold-viewer-__HASH__";
-const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png",
+const SHELL = ["index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png",
   "lib/pdf.min.js", "lib/pdf.worker.min.js", "lib/jszip.min.js"];
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
@@ -74,7 +91,7 @@ self.addEventListener("fetch", (e) => {
   if (url.protocol === "blob:" || url.protocol === "data:") return;
   // the page itself: network first so updates arrive, cache when offline
   if (e.request.mode === "navigate") {
-    e.respondWith(fetch(e.request).then((r) => { const c = r.clone(); caches.open(CACHE).then((k) => k.put("index.html", c)); return r; })
+    e.respondWith(fetch(e.request, { cache: "no-store" }).then((r) => { const c = r.clone(); caches.open(CACHE).then((k) => k.put("index.html", c)); return r; })
       .catch(() => caches.match("index.html")));
     return;
   }

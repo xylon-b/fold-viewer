@@ -58,7 +58,7 @@ open(OUT+'/manifest.webmanifest','w').write('''{
 }
 ''')
 open(OUT+'/sw.js','w').write('''// 펼침 뷰어: works offline after the first visit
-const CACHE = "fold-viewer-v1";
+const CACHE = "fold-viewer-__HASH__";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png",
   "lib/pdf.min.js", "lib/pdf.worker.min.js", "lib/jszip.min.js"];
 self.addEventListener("install", (e) => {
@@ -85,6 +85,9 @@ self.addEventListener("fetch", (e) => {
   })));
 });
 ''')
+import hashlib
+sw=open(OUT+'/sw.js').read().replace('__HASH__', hashlib.sha1(open(OUT+'/index.html','rb').read()).hexdigest()[:8])
+open(OUT+'/sw.js','w').write(sw)
 # icons: an open book over a fold hinge
 from PIL import Image, ImageDraw
 def icon(size, pad):
